@@ -16,22 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: qmkfm/qmk_cli:latest
-    strategy:
-      matrix:
-        keymap: [default, vial]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build ${{ matrix.keymap }}
-        run: ./build.sh ${{ matrix.keymap }}
+      - name: Build vial
+        run: ./build.sh vial
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: core_deck_rev1_${{ matrix.keymap }}
-          path: core_deck_rev1_${{ matrix.keymap }}.uf2
+          name: core_deck_rev1_vial
+          path: core_deck_rev1_vial.uf2
           if-no-files-found: error
 
   release:
