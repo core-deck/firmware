@@ -2,7 +2,7 @@
 
 A Claude Code-optimized macropad with TFT display, RGB lighting, and rotary encoder.
 
-![Core Deck](https://via.placeholder.com/600x400?text=Core+Deck)
+![Core Deck](./device.png)
 
 ## Features
 
