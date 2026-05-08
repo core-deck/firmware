@@ -1,6 +1,6 @@
 # CoreDeck Firmware
 
-Firmware for the [CoreDeck](https://core-deck.com) macropad. Built on top of
+Firmware for the [CoreDeck](https://coredeck.sh) macropad. Built on top of
 [vial-qmk](https://github.com/vial-kb/vial-qmk) (a fork of
 [QMK](https://qmk.fm)) for Vial keymap support.
 
