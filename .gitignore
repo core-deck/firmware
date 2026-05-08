@@ -1,0 +1,13 @@
+# Build outputs
+*.uf2
+*.bin
+*.hex
+*.elf
+
+# OS junk
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp

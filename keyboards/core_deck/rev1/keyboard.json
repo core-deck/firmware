@@ -1,0 +1,71 @@
+{
+    "manufacturer": "RR",
+    "keyboard_name": "Core Deck (r1)",
+    "maintainer": "vden",
+    "bootloader": "rp2040",
+    "features": {
+        "bootmagic": true,
+        "command": true,
+        "console": true,
+        "encoder": true,
+        "extrakey": true,
+        "mousekey": true,
+        "nkro": true,
+        "rgb_matrix": true
+    },
+    "ws2812": {
+        "pin": "GP2",
+        "driver": "vendor"
+    },
+    "rgb_matrix": {
+        "driver": "ws2812",
+        "max_brightness": 130,
+        "animations": {
+            "solid_color": true,
+            "solid_reactive_simple": true,
+            "solid_reactive": true
+        },
+        "timeout": 0,
+        "sleep": true,
+        "layout": [
+            { "matrix": [0, 3], "x": 168, "y": 0, "flags": 4 },
+            { "matrix": [0, 2], "x": 112, "y": 0, "flags": 4 },
+            { "matrix": [0, 1], "x": 56, "y": 0, "flags": 4 },
+            { "matrix": [0, 0], "x": 0, "y": 0, "flags": 4 },
+
+            { "matrix": [1, 3], "x": 168, "y": 32, "flags": 4 },
+            { "matrix": [1, 1], "x": 56, "y": 32, "flags": 4 },
+            { "matrix": [1, 2], "x": 112, "y": 32, "flags": 4 },
+            { "matrix": [1, 0], "x": 0, "y": 32, "flags": 4 },
+
+            { "matrix": [2, 0], "x": 84, "y": 64, "flags": 4 }
+        ]
+    },
+    "encoder": {
+        "rotary": [{ "pin_a": "GP11", "pin_b": "GP12", "resolution": 4 }]
+    },
+    "processor": "RP2040",
+    "url": "",
+    "usb": {
+        "device_version": "1.1.0",
+        "pid": "0x0803",
+        "vid": "0xFEED"
+    },
+    "layouts": {
+        "LAYOUT": {
+            "layout": [
+                { "matrix": [0, 0], "x": 0, "y": 0 },
+                { "matrix": [0, 1], "x": 1, "y": 0 },
+                { "matrix": [0, 2], "x": 2, "y": 0 },
+                { "matrix": [0, 3], "x": 3, "y": 0 },
+
+                { "matrix": [1, 0], "x": 0, "y": 1 },
+                { "matrix": [1, 1], "x": 1, "y": 1 },
+                { "matrix": [1, 2], "x": 2, "y": 1 },
+                { "matrix": [1, 3], "x": 3, "y": 1 },
+
+                { "matrix": [2, 0], "x": 1.5, "y": 2 }
+            ]
+        }
+    }
+}

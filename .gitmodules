@@ -1,0 +1,4 @@
+[submodule "vendor/vial-qmk"]
+	path = vendor/vial-qmk
+	url = https://github.com/vial-kb/vial-qmk.git
+	branch = vial
