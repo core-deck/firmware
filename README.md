@@ -25,8 +25,14 @@ You need [QMK CLI](https://docs.qmk.fm/#/newbs_getting_started) installed
 
 ## Flashing
 
-Hold the BOOT button while plugging in to enter UF2 mode, then drag the `.uf2`
-file onto the mounted drive. Or:
+Hold the **Agent** (orange) button while plugging in the USB cable to enter
+UF2 mode, then drag the `.uf2` file onto the mounted drive.
+
+If the device is unresponsive and won't enter UF2 mode that way, the BOOT
+button is the fallback — it's hidden inside but reachable through the hole
+in the bottom plate. Hold it while plugging in.
+
+You can also flash directly from the build script:
 
 ```sh
 ./build.sh default flash
