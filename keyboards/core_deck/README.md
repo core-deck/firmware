@@ -35,8 +35,8 @@ A Claude Code-optimized macropad with TFT display, RGB lighting, and rotary enco
 ### Direct GPIO Buttons
 ```
 ┌──────────┬──────────┬──────────┬──────────┐
-│  Stop    │ Accept   │ Reject   │   Mode   │
-│ Ctrl-C   │  Enter   │   Esc    │Shift-Tab │
+│   Mode   │ Accept   │ Reject   │   Stop   │
+│Shift-Tab │  Enter   │   Esc    │  Ctrl-C  │
 └──────────┴──────────┴──────────┴──────────┘
 
 ┌──────────┐
@@ -95,32 +95,30 @@ Shows real-time Claude Code information:
 
 ## Building Firmware
 
-### Prerequisites
-```bash
-# Install QMK CLI
-python3 -m pip install qmk
+The firmware lives in this repository alongside a vendored copy of
+[vial-qmk](https://github.com/vial-kb/vial-qmk). See the [top-level
+README](../../README.md) for the full build flow.
 
-# Setup QMK
-qmk setup
+```sh
+# From the repository root
+./build.sh vial         # build vial keymap (recommended)
+./build.sh default      # build default (vanilla QMK) keymap
 ```
 
-### Compile
-```bash
-cd qmk_firmware
-qmk compile -kb core_deck/rev1 -km default
-```
+Output: `core_deck_rev1_<keymap>.uf2` at the repo root.
 
-### Flash
-1. Hold BOOTSEL button on RP2040-Tiny
-2. Plug in USB cable
-3. Copy `.uf2` file to RPI-RP2 drive
-4. Or use: `qmk flash -kb core_deck/rev1 -km default`
+Pre-built UF2 files are also published as
+[GitHub Release](https://github.com/core-deck/firmware/releases) artifacts on
+every tagged release.
 
-### Alternative: Double-Tap Reset
-Firmware includes double-tap bootloader entry:
-1. Press Reset button twice within 500ms
-2. Device enters bootloader mode
-3. Copy firmware as above
+## Flashing
+
+Hold the **Agent** (orange) button while plugging in the USB cable. The device
+mounts as a USB drive — drag the `.uf2` onto it.
+
+If the device is unresponsive and won't enter UF2 mode that way, the BOOT
+button (hidden inside, reachable through the hole in the bottom plate) is the
+fallback. Hold it while plugging in.
 
 ## Hardware Setup
 
@@ -208,13 +206,15 @@ Commands use the chunked protocol (see [PROTOCOL.md](PROTOCOL.md)):
 ## Customization
 
 ### Changing Keymaps
-Edit `keyboards/core_deck/rev1/keymaps/default/keymap.c`:
+Edit `keyboards/core_deck/rev1/keymaps/default/keymap.c` (or the `vial`
+keymap). Matrix indices `[1,0]..[1,3]` are wired so that `[1,3]` is the
+leftmost direct-GPIO button (Mode) and `[1,0]` is the rightmost (Stop):
 
 ```c
 [0] = LAYOUT(
-    KC_F20,      KC_NO,       LCTL(KC_O),  KC_NO,        // Row 0: Claude, Clear(EEPROM), Verbose, Model(EEPROM)
-    LCTL(KC_C),  KC_ENT,      KC_ESC,      LSFT(KC_TAB), // Row 1: Stop, Accept, Reject, Mode
-    KC_ENT                                                // Row 2: Encoder button
+    KC_NO,       LCTL(KC_O),  KC_NO,       KC_F20,           // Row 0: Clear(EEPROM), Verbose, Model(EEPROM), Claude
+    LCTL(KC_C),  KC_ENT,      KC_ESC,      LT(2, KC_NO),     // Row 1: Stop, Accept, Reject, Mode  (visual order: Mode|Accept|Reject|Stop)
+    LT(1, KC_ENT)                                             // Row 2: Encoder button
 )
 ```
 
@@ -275,35 +275,31 @@ Or edit `config.h`:
 
 ## Documentation
 
-- [HARDWARE.md](HARDWARE.md) - Complete hardware guide, wiring, and PCB recommendations
-- [PROTOCOL.md](PROTOCOL.md) - Chunked HID protocol, display setup, and companion app examples
-
-## Contributing
-
-This keyboard is designed for the QMK firmware repository.
+- [HARDWARE.md](HARDWARE.md) — Hardware guide, wiring, and PCB recommendations
+- [PROTOCOL.md](PROTOCOL.md) — Chunked HID protocol and companion app examples
+- [Top-level README](../../README.md) — Repository layout and build flow
 
 ## License
 
-GPL-2.0-or-later (QMK standard)
+GPL-2.0-or-later (QMK standard) — see [LICENSE](../../LICENSE).
 
 ## Credits
 
-- **Designer**: vden
-- **Firmware**: QMK Firmware
+- **Designer**: vden / Core Deck
+- **Firmware base**: [vial-qmk](https://github.com/vial-kb/vial-qmk) (a Vial-enabled fork of [QMK](https://qmk.fm))
 - **Display Driver**: QMK Quantum Painter
 - **RGB Library**: QMK RGB Matrix
 
 ## Support
 
-For issues or questions:
-1. Check documentation files
-2. Run `qmk console` for debug output
-3. Open issue in QMK repository
+For issues or questions, open an issue at
+[github.com/core-deck/firmware](https://github.com/core-deck/firmware/issues).
+Run `qmk console` against a flashed device for live debug output.
 
 ---
 
 **Current Configuration:**
 - Display: ST7789 (284×76, landscape)
 - Matrix: 1×4 PCF8574 + 4 direct GPIO + 1 encoder button
-- RGB: 9 WS2812B LEDs @ 51% brightness
+- RGB: 9 WS2812B LEDs @ 51% brightness (130/255)
 - Platform: RP2040-Tiny

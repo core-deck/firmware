@@ -195,28 +195,36 @@ GND ------------ GND (Ground)
 - **Data Pin:** GP2
 - **Wiring:** Daisy-chain (DOUT → DIN for each LED in sequence)
 
-**LED Mapping:**
+**LED Mapping** (chain order from `keyboard.json` `rgb_matrix.layout`):
 ```
 LED Index    Matrix Position    Button Function
 ---------    ---------------    ---------------
-0            [0,0]              Claude
-1            [0,1]              Clear
-2            [0,2]              Editor
-3            [0,3]              Model
+0            [0,3]              Claude
+1            [0,2]              Model
+2            [0,1]              Verbose
+3            [0,0]              Clear
 
-4            [1,0]              Stop
+4            [1,3]              Mode  (cycles default/plan/accept)
 5            [1,1]              Accept
 6            [1,2]              Reject
-7            [1,3]              Mode (special: red/green toggle)
+7            [1,0]              Stop
 
 8            [2,0]              Encoder button
 ```
 
+Note: row 1 is wired so matrix `[1,3]` is the **leftmost** direct-GPIO button
+(Mode) and `[1,0]` is the rightmost (Stop). Row 1 visual order, left-to-right:
+**Mode | Accept | Reject | Stop**.
+
 **LED Behaviors:**
-- **Normal buttons (LEDs 0-6, 8):** Flash brighter when pressed (reactive lighting)
-- **Mode button (LED 7):** Toggles between red and green on each press
-  - Red: Default state
-  - Green: Active state
+- **Reactive glow (all LEDs):** Constant dim base + brief brighter flash on press, fading back to base. Custom `GLOW_REACTIVE` effect (`rgb_matrix_kb.inc`).
+- **Mode button (LED 4):** Overrides the base color to indicate Claude Code mode:
+  - Default: no override (uses normal reactive effect)
+  - Plan mode: cyan (HSV hue 128)
+  - Accept mode: purple (HSV hue 191)
+  - Cycles default → accept → plan → default on each press
+  - Companion app can also set the mode via HID command 0x07
+- **Alert mode:** When a host alert is active, all LEDs override to red.
 
 **Power Consumption:**
 - Maximum brightness limited to 130/255 (~51%) to stay under 500mA total

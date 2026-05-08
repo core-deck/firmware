@@ -20,10 +20,10 @@ PCF8574 I2C Matrix (Row 0):
 └─────────┴─────────┴─────────┴─────────┘
 * = Soft key (reconfigurable via HID)
 
-Direct GPIO Buttons (Row 1):
+Direct GPIO Buttons (Row 1) — visual order, left-to-right:
 ┌─────────┬─────────┬─────────┬─────────┐
-│  Stop   │ Accept  │ Reject  │  Mode   │
-│ Ctrl-C  │ Enter   │  Esc    │Shift-Tab│
+│  Mode   │ Accept  │ Reject  │  Stop   │
+│Shift-Tab│ Enter   │  Esc    │ Ctrl-C  │
 └─────────┴─────────┴─────────┴─────────┘
 
 Encoder (Row 2):
@@ -56,12 +56,15 @@ The keyboard uses a PCF8574 I2C GPIO expander for 4 buttons:
 
 ### Direct GPIO Buttons
 
-4 buttons connected directly to RP2040 GPIO:
-* **GP13**: Stop (Ctrl-C)
+4 buttons connected directly to RP2040 GPIO. Wiring is mirrored relative to
+the visual layout — matrix col 0 (`GP13`) is the **rightmost** button on the
+device, col 3 (`GP26`) is the **leftmost**.
+
+* **GP13**: Stop (Ctrl-C) — rightmost
 * **GP14**: Accept (Enter)
 * **GP15**: Reject (Esc)
-* **GP26**: Mode (Shift-Tab)
-* **GP27**: Encoder button (Enter)
+* **GP26**: Mode (Shift-Tab tap, Layer 2 hold) — leftmost
+* **GP27**: Encoder button (Enter tap, Layer 1 hold)
 
 ### YOLO Mode Switch
 
@@ -73,24 +76,26 @@ The YOLO mode toggle switch connects directly to the RP2040:
 
 ## Building
 
-Make example for this keyboard (after setting up your build environment):
+Use the top-level `build.sh` (which manages the vial-qmk submodule, applies
+patches, and runs `qmk compile`):
 
-    qmk compile -kb core_deck/rev1 -km default
+    ./build.sh vial         # build vial keymap (recommended)
+    ./build.sh default      # build default keymap
 
-Or using make:
+Output: `core_deck_rev1_<keymap>.uf2` at the repo root.
 
-    make core_deck/rev1:default
+Pre-built UF2 files for tagged releases are available at
+[github.com/core-deck/firmware/releases](https://github.com/core-deck/firmware/releases).
 
-Flashing example for this keyboard:
+See the [top-level README](../../../README.md) for full instructions.
 
-    qmk flash -kb core_deck/rev1 -km default
+## Flashing / Bootloader
 
-See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_tools) and the [make instructions](https://docs.qmk.fm/#/getting_started_make_guide) for more information. Brand new to QMK? Start with our [Complete Newbs Guide](https://docs.qmk.fm/#/newbs).
+Hold the **Agent (orange) button** while plugging in USB. The device mounts
+as a USB drive — drag the `.uf2` onto it.
 
-## Bootloader
+Fallback (if device is unresponsive): the **BOOT** button is hidden inside
+the case and reachable through the hole in the bottom plate. Hold it while
+plugging in.
 
-Enter the bootloader in 3 ways:
-
-* **Bootmagic reset**: Hold down the key at (0,0) in the matrix (top left key) and plug in the keyboard
-* **Physical reset button**: Briefly press the button on the back of the PCB - some may have pads you must short instead
-* **Keycode in layout**: Press the key mapped to `QK_BOOT` if it is available
+You can also flash directly: `./build.sh vial flash`.
