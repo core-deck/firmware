@@ -28,6 +28,9 @@ SRC += graphics/logo.qgf.c
 # Soft key runtime configuration
 SRC += softkeys.c
 
+# Tunable display color palette
+SRC += theme.c
+
 # Detect host OS for platform-aware modifier labels
 OS_DETECTION_ENABLE = yes
 

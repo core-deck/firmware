@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "action.h"
+#include "theme.h"
 
 #define SOFTKEY_COUNT     3
 #define SOFTKEY_DATA_LEN 128  // 127 usable chars + null, or 2 bytes for keycode
@@ -33,9 +34,11 @@ typedef struct __attribute__((packed)) {
 
 /* Full keyboard EEPROM config */
 typedef struct __attribute__((packed)) {
-    softkey_entry_t softkeys[SOFTKEY_COUNT];  // 387 bytes
-    uint8_t backlight_level;                  // 1 byte (migrated from raw addr 32)
-} kb_config_t;  // 388 bytes
+    softkey_entry_t softkeys[SOFTKEY_COUNT];     // 387 bytes
+    uint8_t backlight_level;                     //   1 byte (migrated from raw addr 32)
+    uint8_t theme_version;                       //   1 byte (THEME_CONFIG_VERSION sentinel)
+    theme_color_t theme[THEME_SLOT_COUNT];       //  30 bytes (10 slots × 3 bytes)
+} kb_config_t;  // 419 bytes
 
 /* Global config instance */
 extern kb_config_t kb_config;

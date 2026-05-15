@@ -106,8 +106,9 @@
 // Additional filtering for very noisy encoders (optional, uncomment if needed):
 // #define ENCODER_MAP_KEY_DELAY 10                  // Delay between encoder actions (ms)
 
-/* EEPROM Datablock Configuration (kb_config_t: 3 softkeys x 129 bytes + 1 backlight) */
-#define EECONFIG_KB_DATA_SIZE 388
+/* EEPROM Datablock Configuration
+ * kb_config_t = 3 softkeys × 129 bytes + 1 backlight + 1 theme_version + 10 theme colors × 3 bytes */
+#define EECONFIG_KB_DATA_SIZE 419
 
 /* Display Backlight Configuration */
 #define DISPLAY_BL_PIN GP0

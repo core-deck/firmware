@@ -9,6 +9,7 @@
 #include "display.h"
 #include "softkeys.h"
 #include "protocol.h"
+#include "theme.h"
 #include "config.h"
 #include "qp_surface.h"
 #include "graphics/terminus_bold_18.qff.h"
@@ -17,30 +18,18 @@
 #include <hal.h>
 #include <string.h>
 
-/* Alert/accent color tuning (for visibility through tinted cover)
- * Pure red HSV(0,255,255) only lights R sub-pixels — dim through tint.
- * Lower saturation mixes in white, activating all sub-pixels = much brighter.
- */
-#define ALERT_HUE 0
-#define ALERT_SAT 160
-#define ALERT_VAL 255
+/* Color slots live in kb_config.theme[] and are tunable at runtime via
+ * HID commands 0x0B/0x0C/0x0D. See theme.h for the slot enum and theme.c
+ * for the firmware defaults (the values originally compiled in here).
+ *
+ * Note on alert/task saturation: defaults use S=160 (not 255) on purpose —
+ * pure-red and pure-blue only light one sub-pixel and read as dim through
+ * a tinted cover. The reduced saturation activates more sub-pixels for
+ * better visibility. Hosts can override but should be aware of this. */
 
-/* Task text: cyan/blue — same treatment */
-#define TASK_HUE 170
-#define TASK_SAT 160
-#define TASK_VAL 255
-
-/* Context bar (bottom 2px gold line, matches logo accent) */
-#define CTX_BAR_HUE  30
-#define CTX_BAR_SAT 225
-#define CTX_BAR_VAL 215
-
-/* YOLO hazard stripe parameters */
+/* YOLO hazard stripe geometry — colour comes from THEME_YOLO. */
 #define YOLO_STRIPE_W   3   /* width of stripe column on each side */
 #define YOLO_STRIPE_P   6   /* diagonal stripe period in pixels */
-#define YOLO_HUE       20   /* orange */
-#define YOLO_SAT      255
-#define YOLO_VAL      255
 
 /* Display handle */
 static painter_device_t display = NULL;
@@ -103,12 +92,9 @@ static uint16_t anim_phase = 0;       // 0..1999 for 2s cycle
 #define ANIM_FRAME_MS 50              // ~20fps
 #define ANIM_CYCLE_MS 2000
 
-/* HSV Colors */
-// White: 0, 0, 255
-// Blue: 170, 255, 255
-// Green: 85, 255, 255
-// Grey: 0, 0, 128
-// Black: 0, 0, 0
+/* Tunable colors come from kb_config.theme[] — see theme.h for slots and
+ * theme.c for defaults. Black (0,0,0) is used as a background fill and is
+ * not tunable. */
 
 /**
  * @brief Custom ST7789 init for 76x284 panel
@@ -508,7 +494,7 @@ static void draw_tabs(painter_device_t target) {
         if (i < DISPLAY_MAX_TABS && alerts[i].text[0] != '\0') {
             uint8_t half = base_radius;
             qp_rect(target, cx - half, center_y - half, cx + half, center_y + half,
-                    ALERT_HUE, ALERT_SAT, ALERT_VAL, true);
+                    THEME_HSV(THEME_ALERT), true);
             continue;
         }
 
@@ -518,30 +504,27 @@ static void draw_tabs(painter_device_t target) {
         uint8_t r = is_working ? calc_breathing_radius(anim_phase) : base_radius;
         if (is_active) r++;  /* +1px compensates lower-contrast peach color */
 
-        if (state == 0) {
-            /* Inactive: outline circle, white */
-            qp_circle(target, cx, center_y, r, 0, 0, 255, false);
-        } else if (state == 1) {
-            /* Loaded: filled white, or peach if active tab */
-            if (is_active) {
-                qp_circle(target, cx, center_y, r, 9, 156, 222, true);
-            } else {
-                qp_circle(target, cx, center_y, r, 0, 0, 255, true);
-            }
+        uint8_t hue, sat, val;
+        if (is_active) {
+            theme_get(THEME_TAB_ACTIVE, &hue, &sat, &val);
         } else {
-            /* Working: breathing filled peach, or breathing white if also active */
-            if (is_active) {
-                qp_circle(target, cx, center_y, r, 9, 156, 222, true);
-            } else {
-                qp_circle(target, cx, center_y, r, 0, 0, 255, true);
-            }
+            theme_get(THEME_TAB_INACTIVE, &hue, &sat, &val);
+        }
+
+        if (state == 0) {
+            /* Inactive: outline circle */
+            qp_circle(target, cx, center_y, r, hue, sat, val, false);
+        } else {
+            /* Loaded or working: filled */
+            qp_circle(target, cx, center_y, r, hue, sat, val, true);
         }
     }
 
     if (overflow) {
-        /* Draw ">" overflow indicator at right edge */
+        /* Draw ">" overflow indicator at right edge (shares colour with inactive tabs) */
         uint16_t x = DISPLAY_WIDTH - margin - qp_textwidth(font_small, ">");
-        qp_drawtext_recolor(target, x, center_y - 7, font_small, ">", 0, 0, 128, 0, 0, 0);
+        qp_drawtext_recolor(target, x, center_y - 7, font_small,
+                            ">", THEME_HSV(THEME_TAB_INACTIVE), 0, 0, 0);
     }
 }
 
@@ -552,11 +535,13 @@ static void draw_tabs(painter_device_t target) {
  * Left and right patterns are mirrored (both use distance-from-edge + y).
  */
 static void draw_yolo_stripes(painter_device_t target) {
+    uint8_t yh, ys, yv;
+    theme_get(THEME_YOLO, &yh, &ys, &yv);
     for (uint16_t y = 0; y < DISPLAY_HEIGHT; y++) {
         for (uint8_t i = 0; i < YOLO_STRIPE_W; i++) {
             if ((i + y) % YOLO_STRIPE_P < YOLO_STRIPE_P / 2) {
-                qp_setpixel(target, i, y, YOLO_HUE, YOLO_SAT, YOLO_VAL);
-                qp_setpixel(target, DISPLAY_WIDTH - 1 - i, y, YOLO_HUE, YOLO_SAT, YOLO_VAL);
+                qp_setpixel(target, i, y, yh, ys, yv);
+                qp_setpixel(target, DISPLAY_WIDTH - 1 - i, y, yh, ys, yv);
             }
         }
     }
@@ -573,7 +558,7 @@ static void draw_context_bar(painter_device_t target) {
     if (bar_w > DISPLAY_WIDTH) bar_w = DISPLAY_WIDTH;
 
     qp_rect(target, 0, DISPLAY_HEIGHT - 2, bar_w - 1, DISPLAY_HEIGHT - 1,
-            CTX_BAR_HUE, CTX_BAR_SAT, CTX_BAR_VAL, true);
+            THEME_HSV(THEME_CTX_BAR), true);
 }
 
 void display_render(void) {
@@ -596,22 +581,27 @@ void display_render(void) {
         draw_yolo_stripes(surface);
     }
 
-    // Line 1: SESSION (White, 18px bold) - at y=2, centered
-    draw_text_centered(surface, font_large, 2, display_data.session, max_text_width, 0, 0, 255);
+    // Line 1: SESSION (themable, 18px bold) - at y=2, centered
+    draw_text_centered(surface, font_large, 2, display_data.session,
+                       max_text_width, THEME_HSV(THEME_SESSION));
 
-    // Lines 2-3: TASK (Blue, 14px) — pre-formatted by app
+    // Lines 2-3: TASK (themable, 14px) — pre-formatted by app
     if (display_data.task[0] != '\0') {
         if (display_data.task2[0] != '\0') {
             /* Two pre-formatted lines from app */
-            draw_text_centered(surface, font_small, 25, display_data.task, max_text_width, TASK_HUE, TASK_SAT, TASK_VAL);
-            draw_text_centered(surface, font_small, 42, display_data.task2, max_text_width, TASK_HUE, TASK_SAT, TASK_VAL);
+            draw_text_centered(surface, font_small, 25, display_data.task,
+                               max_text_width, THEME_HSV(THEME_TASK));
+            draw_text_centered(surface, font_small, 42, display_data.task2,
+                               max_text_width, THEME_HSV(THEME_TASK));
         } else {
             /* Single line centered */
-            draw_text_centered(surface, font_small, 33, display_data.task, max_text_width, TASK_HUE, TASK_SAT, TASK_VAL);
+            draw_text_centered(surface, font_small, 33, display_data.task,
+                               max_text_width, THEME_HSV(THEME_TASK));
         }
     } else {
         /* No active task — show dimmed placeholder */
-        draw_text_centered(surface, font_small, 33, "No active task", max_text_width, 0, 0, 180);
+        draw_text_centered(surface, font_small, 33, "No active task",
+                           max_text_width, THEME_HSV(THEME_TASK_EMPTY));
     }
 
     // Draw tab indicators on bottom line
@@ -849,11 +839,15 @@ static void draw_alert_frame(painter_device_t target) {
     /* Base V values for the 5 rings (outer → inner) */
     static const uint8_t base_v[] = { 255, 180, 120, 70, 30 };
 
+    /* Frame uses THEME_ALERT for hue/sat; V is animated and ignores the slot's val. */
+    uint8_t ah, as_, av_unused;
+    theme_get(THEME_ALERT, &ah, &as_, &av_unused);
+    (void)av_unused;
+
     for (uint8_t i = 0; i < 5; i++) {
-        /* Scale V by breath (60..base_v), keep S from ALERT_SAT */
         uint8_t v = 60 + (uint8_t)((uint16_t)(base_v[i] - 60) * breath / 255);
         qp_rect(target, i, i, DISPLAY_WIDTH - 1 - i, DISPLAY_HEIGHT - 1 - i,
-                ALERT_HUE, ALERT_SAT, v, false);
+                ah, as_, v, false);
     }
 }
 
@@ -949,23 +943,23 @@ static void display_render_alert_overlay(void) {
         uint16_t max_w = DISPLAY_WIDTH - 14; /* 5px frame + 2px pad each side */
 
         if (alert_details_active && alerts[idx].details[0] != '\0') {
-            /* Details view: up to 3 lines of details text, white, small font */
+            /* Details view: up to 3 lines of details text, themable (session colour), small font */
             static const uint16_t y3[] = { 10, 28, 46 };
             draw_wordwrapped(surface, font_small, y3, 3,
-                             alerts[idx].details, max_w, 0, 0, 255);
+                             alerts[idx].details, max_w, THEME_HSV(THEME_SESSION));
         } else {
             /* Normal alert view: session + text + tabs */
 
-            /* Line 1: Session name (white, large font, centered) */
+            /* Line 1: Session name (themable, large font, centered) */
             draw_text_centered(surface, font_large, 2, alerts[idx].session,
-                               max_w, 0, 0, 255);
+                               max_w, THEME_HSV(THEME_SESSION));
 
-            /* Lines 2-3: Alert text (red, small font, word-wrapped) */
+            /* Lines 2-3: Alert text (themable, small font, word-wrapped) */
             static const uint16_t y2[] = { 25, 42 };
             draw_wordwrapped(surface, font_small, y2, 2,
-                             alerts[idx].text, max_w, ALERT_HUE, ALERT_SAT, ALERT_VAL);
+                             alerts[idx].text, max_w, THEME_HSV(THEME_ALERT));
 
-            /* Tab indicators (red squares for alerted tabs) */
+            /* Tab indicators (alerted tabs use THEME_ALERT) */
             draw_tabs(surface);
         }
     }
@@ -1191,23 +1185,27 @@ void display_overlay_show(void) {
 
         uint16_t y = i * line_h + (line_h - font_h) / 2 + 2;
 
-        /* Dot identifier (white, left-aligned) */
-        qp_drawtext_recolor(surface, dot_x, y, font_large, dots[i], 0, 0, 255, 0, 0, 0);
+        /* Dot identifier (themable, left-aligned) */
+        qp_drawtext_recolor(surface, dot_x, y, font_large, dots[i],
+                            THEME_HSV(THEME_SOFTKEY_LABEL), 0, 0, 0);
 
-        /* Label (white, centered in remaining space) */
+        /* Label (themable, centered in remaining space) */
         int16_t tw = qp_textwidth(font_large, safe);
         int16_t right_margin = yolo ? (YOLO_STRIPE_W + 2) : 0;
         int16_t label_area = DISPLAY_WIDTH - dot_margin - right_margin;
         int16_t x = dot_margin + (label_area - tw) / 2;
         if (x < (int16_t)dot_margin) x = dot_margin;
 
-        qp_drawtext_recolor(surface, x, y, font_large, safe, 0, 0, 255, 0, 0, 0);
+        qp_drawtext_recolor(surface, x, y, font_large, safe,
+                            THEME_HSV(THEME_SOFTKEY_LABEL), 0, 0, 0);
     }
 
     /* Thin horizontal separators (90% width, centered, subtle) */
     uint16_t sep_margin = DISPLAY_WIDTH / 20;  /* 5% each side */
-    qp_line(surface, sep_margin, line_h, DISPLAY_WIDTH - 1 - sep_margin, line_h, 0, 0, 60);
-    qp_line(surface, sep_margin, line_h * 2, DISPLAY_WIDTH - 1 - sep_margin, line_h * 2, 0, 0, 60);
+    qp_line(surface, sep_margin, line_h,
+            DISPLAY_WIDTH - 1 - sep_margin, line_h, THEME_HSV(THEME_SOFTKEY_SEP));
+    qp_line(surface, sep_margin, line_h * 2,
+            DISPLAY_WIDTH - 1 - sep_margin, line_h * 2, THEME_HSV(THEME_SOFTKEY_SEP));
 
     /* Blit to display */
     qp_surface_draw(surface, display, 0, 0, true);

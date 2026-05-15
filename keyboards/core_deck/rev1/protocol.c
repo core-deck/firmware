@@ -6,10 +6,11 @@
 #include "display.h"
 #include "raw_hid.h"
 #include "softkeys.h"
+#include "theme.h"
 #include <string.h>
 
 /* Firmware version (update on each release) */
-#define FW_VERSION "2.0.0"
+#define FW_VERSION "2.1.0"
 
 /* Internal header size for parsing (flags + cmd, after prefix is stripped) */
 #define PROTO_PKT_HEADER 2
@@ -206,7 +207,22 @@ static void send_error(uint8_t error_code) {
  *   0x08: Alert [JSON: tab, session, text]
  *   0x09: Get firmware version (responds with version string)
  *   0x0A: Disconnect (host signals it is going away — immediately go idle)
+ *   0x0B: Set theme slot [slot, hue, sat, val, save_flag]
+ *   0x0C: Get theme [slot, or 0xFF to dump all]
+ *   0x0D: Reset theme (resets and returns dump-all response)
  */
+
+/**
+ * @brief Build a [count, h0,s0,v0, h1,s1,v1, ...] dump of all theme slots.
+ * @return Number of bytes written to buf (1 + 3*THEME_SLOT_COUNT).
+ */
+static uint16_t theme_dump_response(uint8_t *buf) {
+    buf[0] = (uint8_t)THEME_SLOT_COUNT;
+    for (uint8_t i = 0; i < THEME_SLOT_COUNT; i++) {
+        theme_get(i, &buf[1 + i * 3], &buf[2 + i * 3], &buf[3 + i * 3]);
+    }
+    return 1 + (uint16_t)THEME_SLOT_COUNT * 3;
+}
 static void process_message(uint8_t cmd, const uint8_t *payload, uint16_t len) {
     switch (cmd) {
         case 0x01: {  // Update display data
@@ -357,6 +373,51 @@ static void process_message(uint8_t cmd, const uint8_t *payload, uint16_t len) {
             send_response(CMD_DISCONNECT, 0x00, NULL, 0);
             display_host_disconnected();
             break;
+
+        case CMD_SET_THEME: {  // Set one theme slot [slot, h, s, v, save]
+            display_ping_received();
+            uint8_t resp[4] = {0};
+            if (len >= 5 && payload[0] < THEME_SLOT_COUNT) {
+                uint8_t slot = payload[0];
+                theme_set(slot, payload[1], payload[2], payload[3], payload[4] != 0);
+                resp[0] = slot;
+                theme_get(slot, &resp[1], &resp[2], &resp[3]);
+                display_render();  /* Refresh with new colour */
+                dprintf("Theme: set slot %d = (%d,%d,%d) save=%d\n",
+                        slot, payload[1], payload[2], payload[3], payload[4]);
+            }
+            send_response(CMD_SET_THEME, 0x00, resp, sizeof(resp));
+            break;
+        }
+
+        case CMD_GET_THEME: {  // Get theme [slot, or 0xFF for dump all]
+            display_ping_received();
+            if (len >= 1 && payload[0] != THEME_GET_ALL) {
+                uint8_t slot = payload[0];
+                uint8_t resp[4] = {0};
+                if (slot < THEME_SLOT_COUNT) {
+                    resp[0] = slot;
+                    theme_get(slot, &resp[1], &resp[2], &resp[3]);
+                }
+                send_response(CMD_GET_THEME, 0x00, resp, sizeof(resp));
+            } else {
+                uint8_t buf[1 + THEME_SLOT_COUNT * 3];
+                uint16_t n = theme_dump_response(buf);
+                send_response(CMD_GET_THEME, 0x00, buf, n);
+            }
+            break;
+        }
+
+        case CMD_RESET_THEME: {  // Reset theme to firmware defaults
+            display_ping_received();
+            theme_reset();
+            display_render();
+            uint8_t buf[1 + THEME_SLOT_COUNT * 3];
+            uint16_t n = theme_dump_response(buf);
+            send_response(CMD_RESET_THEME, 0x00, buf, n);
+            dprintf("Theme: reset to defaults\n");
+            break;
+        }
 
         default:
             dprintf("Unknown command: 0x%02X\n", cmd);

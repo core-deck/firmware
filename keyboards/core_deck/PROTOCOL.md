@@ -294,6 +294,61 @@ Byte 0: Mode (0x00 = default, 0x01 = accept, 0x02 = plan)
 | 0x01 | Accept | Purple |
 | 0x02 | Plan | Cyan |
 
+#### Command 0x0B: Set Theme Slot
+
+Updates a single display color slot. The new color is applied immediately on the next render; pass `save=1` to also persist it to EEPROM.
+
+**Payload** (single packet, 5 bytes):
+```
+Byte 0: Slot index (see Theme Slots table below)
+Byte 1: Hue        (0-255)
+Byte 2: Saturation (0-255)
+Byte 3: Value      (0-255)
+Byte 4: Save flag  (0x00 = runtime only, 0x01 = persist to EEPROM)
+```
+
+**Response**: `status=0x00`, data: `[slot, hue, sat, val]` reflecting the slot's new state. An out-of-range slot is silently ignored and the response is all zeros.
+
+#### Command 0x0C: Get Theme
+
+Reads one slot or dumps the entire palette.
+
+**Payload** (single packet, 1 byte):
+```
+Byte 0: Slot index, or 0xFF to dump all slots
+```
+
+**Response** (single slot): `status=0x00`, data: `[slot, hue, sat, val]`
+
+**Response** (dump all, multi-packet): `status=0x00`, data: `[count, h0, s0, v0, h1, s1, v1, ...]` — `count` is the number of slots; total payload is `1 + count*3` bytes (31 for the current 10 slots), spanning two packets in VIAL mode.
+
+#### Command 0x0D: Reset Theme
+
+Resets every slot to its firmware default and persists to EEPROM.
+
+**Payload**: None (single packet)
+
+**Response**: same dump-all format as `0x0C` with slot=`0xFF` — `status=0x00`, data: `[count, h0, s0, v0, ...]`
+
+#### Theme Slots
+
+| Index | Name                  | Default HSV       | Used for                                                        |
+|-------|-----------------------|-------------------|-----------------------------------------------------------------|
+| 0     | `THEME_SESSION`       | `(0, 0, 255)`     | Session line, alert overlay session header, alert details text   |
+| 1     | `THEME_TASK`          | `(170, 105, 255)` | Task line(s) 2-3                                                 |
+| 2     | `THEME_TASK_EMPTY`    | `(0, 0, 180)`     | "No active task" placeholder                                     |
+| 3     | `THEME_ALERT`         | `(0, 160, 255)`   | Alert frame, alert text, alert tab indicator squares             |
+| 4     | `THEME_CTX_BAR`       | `(30, 225, 215)`  | Context usage bar at bottom                                      |
+| 5     | `THEME_YOLO`          | `(20, 255, 255)`  | YOLO diagonal hazard stripes                                     |
+| 6     | `THEME_TAB_ACTIVE`    | `(9, 156, 222)`   | Active tab circle                                                |
+| 7     | `THEME_TAB_INACTIVE`  | `(0, 0, 255)`     | Inactive/loaded/working tab circles + `>` overflow indicator     |
+| 8     | `THEME_SOFTKEY_LABEL` | `(0, 0, 255)`     | Softkey overlay label text and dot identifiers                   |
+| 9     | `THEME_SOFTKEY_SEP`   | `(0, 0, 60)`      | Softkey overlay horizontal separators                            |
+
+**Saturation note**: defaults for `THEME_ALERT` and `THEME_TASK` use `S=160` (not 255) on purpose — pure red and pure blue activate only one display sub-pixel and read as dim through a tinted cover. Lower saturation mixes in white, lighting more sub-pixels. If a host overrides these to `S=255` the colors may be hard to see through dark covers.
+
+**VIA/VIAL collision**: command IDs 0x0B–0x0D live at byte 2 of the packet (after the 0x80 prefix and the flags byte). VIA reads its command from byte 0, so the numeric overlap with VIA's 0x0B–0x0D is harmless — VIA never inspects our command byte.
+
 #### Command 0x09: Get Firmware Version
 
 Queries the firmware version string from the device.

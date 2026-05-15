@@ -5,6 +5,7 @@
 #include "protocol.h"
 #include "display.h"
 #include "softkeys.h"
+#include "theme.h"
 
 #ifdef DIP_SWITCH_ENABLE
 
@@ -33,10 +34,10 @@ bool dip_switch_update_kb(uint8_t index, bool active) {
  * @brief EEPROM reset callback - set safe defaults
  */
 void eeconfig_init_kb(void) {
-    kb_config_t defaults;
-    memset(&defaults, 0, sizeof(defaults));
-    defaults.backlight_level = DISPLAY_BL_DEFAULT_LEVEL;
-    eeconfig_update_kb_datablock(&defaults, 0, sizeof(defaults));
+    memset(&kb_config, 0, sizeof(kb_config));
+    kb_config.backlight_level = DISPLAY_BL_DEFAULT_LEVEL;
+    theme_apply_defaults();
+    eeconfig_update_kb_datablock(&kb_config, 0, sizeof(kb_config));
     dprintf("EEPROM: kb_config defaults written\n");
 
     eeconfig_init_user();

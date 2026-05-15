@@ -61,6 +61,15 @@ void softkeys_init(void) {
         dprintf("Softkeys: applied firmware defaults\n");
     }
 
+    /* Theme migration: a dedicated version byte distinguishes a populated
+     * theme block from both zero-filled and flash-erased EEPROM regions. */
+    if (kb_config.theme_version != THEME_CONFIG_VERSION) {
+        theme_apply_defaults();
+        softkeys_save();
+        dprintf("Theme: applied firmware defaults (version was 0x%02X)\n",
+                kb_config.theme_version);
+    }
+
     dprintf("Softkeys: loaded from EEPROM (bl=%d)\n", kb_config.backlight_level);
     for (uint8_t i = 0; i < SOFTKEY_COUNT; i++) {
         dprintf("  key[%d]: type=%d\n", i, kb_config.softkeys[i].type);

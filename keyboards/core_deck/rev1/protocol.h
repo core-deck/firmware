@@ -27,13 +27,23 @@
 #define PROTO_ERR_BAD_SEQ      0x02
 #define PROTO_ERR_UNKNOWN_CMD  0x03
 
-/* Command IDs */
+/* Command IDs.
+ * These live at byte 2 of every packet (after the 0x80 prefix and the
+ * flags byte) so they cannot collide with VIA command IDs, which VIA reads
+ * from byte 0. Stay below 0xF0 to leave room for unsolicited keyboard→host
+ * commands at 0x10+. */
 #define CMD_ALERT         0x08  /* Host → Keyboard: set/clear tab alert */
 #define CMD_GET_VERSION   0x09  /* Host → Keyboard: query firmware version */
 #define CMD_DISCONNECT    0x0A  /* Host → Keyboard: signal host is disconnecting */
+#define CMD_SET_THEME     0x0B  /* Host → Keyboard: set one theme slot */
+#define CMD_GET_THEME     0x0C  /* Host → Keyboard: read one slot or dump all */
+#define CMD_RESET_THEME   0x0D  /* Host → Keyboard: reset theme to defaults */
 #define CMD_STATE_REPORT  0x10  /* Keyboard → Host: unsolicited state report */
 #define CMD_TYPE_STRING   0x11  /* Keyboard → Host: type string (for SOFTKEY_STRING) */
 #define CMD_KEY_EVENT     0x12  /* Keyboard → Host: key event (16-bit QMK keycode) */
+
+/* CMD_GET_THEME byte-0 sentinel meaning "dump all slots". */
+#define THEME_GET_ALL     0xFF
 
 /* Mode button states — cycle order: default → accept → plan → default */
 #define MODE_DEFAULT  0
