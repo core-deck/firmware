@@ -159,7 +159,7 @@ const uint16_t PROGMEM encoder_map[][NUM_ENCODERS][NUM_DIRECTIONS] = {
  * Index 4-7: Row 1 (Stop, Accept, Reject, Mode)
  * Index 8:   Row 2 (Encoder button)
  *
- * Mode button is at index 4 -- cycles through default/plan/accept
+ * Mode button is at index 4 -- cycles through default/accept/plan/auto
  */
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
     // Mode button LED (index 4) -- use HSV->RGB for consistent color rendering
@@ -172,6 +172,12 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
                 break;
             case MODE_ACCEPT:
                 mode_hsv.h = 191;  // Purple
+                break;
+            case MODE_AUTO:
+                // Golden/amber, matching Claude Code's own "auto" colour.
+                // Distinct from Default, which has no override (reactive
+                // glow) -- solid gold vs. reactive is the differentiator.
+                mode_hsv.h = 32;
                 break;
             default:
                 return false;  // No override, uses normal reactive effect

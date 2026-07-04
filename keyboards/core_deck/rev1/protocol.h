@@ -45,14 +45,17 @@
 /* CMD_GET_THEME byte-0 sentinel meaning "dump all slots". */
 #define THEME_GET_ALL     0xFF
 
-/* Mode button states — cycle order: default → accept → plan → default */
+/* Mode button states — cycle order: default → accept → plan → auto → default.
+ * Mirrors Claude Code's cyclable terminal modes (default, acceptEdits,
+ * plan, auto). All four fit in the 2 mode bits below. */
 #define MODE_DEFAULT  0
 #define MODE_ACCEPT   1
 #define MODE_PLAN     2
-#define MODE_COUNT    3
+#define MODE_AUTO     3
+#define MODE_COUNT    4
 
 /* Pack mode + yolo into a single state byte:
- *   Bit 1-0: Mode (0=default, 1=accept, 2=plan)
+ *   Bit 1-0: Mode (0=default, 1=accept, 2=plan, 3=auto)
  *   Bit 2:   YOLO (0=off, 1=on)
  *   Bit 7-3: Reserved (0) */
 #define STATE_BYTE(mode, yolo) ((uint8_t)((mode) & 0x03) | ((yolo) ? 0x04 : 0x00))
