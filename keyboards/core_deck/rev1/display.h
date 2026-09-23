@@ -16,7 +16,7 @@ typedef struct {
     char session[DISPLAY_MAX_TEXT_LEN];
     char task[DISPLAY_MAX_TEXT_LEN];
     char task2[DISPLAY_MAX_TEXT_LEN];  // second task line (pre-split by app)
-    uint8_t tabs[DISPLAY_MAX_TABS];   // 0=inactive, 1=loaded, 2=working
+    uint8_t tabs[DISPLAY_MAX_TABS];   // 0=inactive, 1=loaded, 2=working, 3=idle w/ background work
     uint8_t tab_count;                // 0-16
     int8_t  active_tab;               // -1 = none
     uint8_t context_percent;          // 0-100, context window usage

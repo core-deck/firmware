@@ -565,6 +565,10 @@ static void draw_tabs(painter_device_t target) {
         if (state == 0) {
             /* Inactive: outline circle */
             qp_circle(target, cx, center_y, r, hue, sat, val, false);
+        } else if (state == 3) {
+            /* Idle, background work in flight: ring with a centre dot */
+            qp_circle(target, cx, center_y, r, hue, sat, val, false);
+            qp_circle(target, cx, center_y, r / 2, hue, sat, val, true);
         } else {
             /* Loaded or working: filled */
             qp_circle(target, cx, center_y, r, hue, sat, val, true);

@@ -47,7 +47,7 @@
     "processor": "RP2040",
     "url": "",
     "usb": {
-        "device_version": "2.3.0",
+        "device_version": "2.4.0",
         "pid": "0x0803",
         "vid": "0xFEED"
     },

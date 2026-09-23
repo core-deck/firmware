@@ -495,10 +495,14 @@ Bytes 3-31: 0x00
 
 ### JSON Fields (Command 0x01: Update Display)
 
-| Field      | Type           | Description                     | Max Length |
-|------------|----------------|---------------------------------|------------|
-| `session`  | string         | Current session name            | 64 chars   |
-| `task`     | string or null | Current task description        | 64 chars   |
+| Field             | Type           | Description | Max Length |
+|-------------------|----------------|-------------|------------|
+| `session`         | string         | Line 1: session name (kept when absent) | 127 bytes |
+| `task`            | string or null | Line 2: task text; `null` clears (shows "No active task") | 127 bytes |
+| `task2`           | string or null | Line 3: second task line, pre-split by the host; absent/null clears | 127 bytes |
+| `tabs`            | array of int   | One entry per tab: `0` inactive (outline), `1` loaded (filled), `2` working (breathing), `3` idle with background work in flight (ring + dot; firmware < 2.4 draws it like `1`) | 16 tabs |
+| `active`          | int or null    | Index into `tabs` of the tab shown on lines 1–3 | — |
+| `context_percent` | number         | Context-window usage, drawn as the bottom bar (integer part used) | 0–100 |
 
 ### JSON Fields (Command 0x08: Alert)
 

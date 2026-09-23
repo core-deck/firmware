@@ -408,6 +408,18 @@ bool softkeys_set(uint8_t index, uint8_t type, const uint8_t *data, uint8_t data
         hold_state = HOLD_IDLE;
     }
 
+    /* Validate before touching the entry: a rejected sequence used to have
+     * already wiped the key's current assignment. */
+    if (type > SOFTKEY_SEQUENCE) {
+        return false;
+    }
+    if (type == SOFTKEY_SEQUENCE) {
+        uint8_t count = (data && data_len >= 1) ? data[0] : 0;
+        if (count == 0 || count > SOFTKEY_SEQ_MAX_KEYS || data_len < 1 + count * 2) {
+            return false;
+        }
+    }
+
     softkey_entry_t *entry = &kb_config.softkeys[index];
 
     /* Clear entry */
@@ -421,14 +433,8 @@ bool softkeys_set(uint8_t index, uint8_t type, const uint8_t *data, uint8_t data
         uint8_t copy_len = data_len < SOFTKEY_DATA_LEN ? data_len : SOFTKEY_DATA_LEN - 1;
         memcpy(entry->data, data, copy_len);
         entry->data[copy_len] = '\0';
-    } else if (type == SOFTKEY_SEQUENCE && data && data_len >= 3) {
-        uint8_t count = data[0];
-        if (count == 0 || count > SOFTKEY_SEQ_MAX_KEYS || data_len < 1 + count * 2) {
-            /* Validation failed — reset entry to default */
-            memset(entry, 0, sizeof(softkey_entry_t));
-            return false;
-        }
-        uint8_t copy_len = 1 + count * 2;
+    } else if (type == SOFTKEY_SEQUENCE) {
+        uint8_t copy_len = 1 + data[0] * 2;
         memcpy(entry->data, data, copy_len);
     }
 

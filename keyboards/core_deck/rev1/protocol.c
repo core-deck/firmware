@@ -10,7 +10,7 @@
 #include <string.h>
 
 /* Firmware version (update on each release) */
-#define FW_VERSION "2.3.0"
+#define FW_VERSION "2.4.0"
 
 /* Internal header size for parsing (flags + cmd, after prefix is stripped) */
 #define PROTO_PKT_HEADER 2
