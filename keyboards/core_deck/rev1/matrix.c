@@ -39,6 +39,12 @@ static const pin_t direct_pins[2][4] = {
 static bool pcf8574_initialized = false;
 static uint8_t pcf8574_error_count = 0;
 static uint16_t i2c_scan_count = 0;
+static uint32_t pcf8574_last_init = 0;
+
+/* While the expander isn't answering, retry this often rather than on
+ * every scan, and re-init after this many consecutive failed transfers. */
+#define PCF8574_RETRY_MS    500
+#define PCF8574_MAX_ERRORS  50
 
 /* Initialize PCF8574 */
 static void init_pcf8574(void) {
@@ -49,7 +55,7 @@ static void init_pcf8574(void) {
                 row_pins[0], col_pins[0], col_pins[1], col_pins[2], col_pins[3]);
 
         i2c_init();
-        wait_ms(100);
+        pcf8574_last_init = timer_read32();
 
         /* Set initial state:
          * - All row pins high (inactive)
@@ -102,6 +108,9 @@ static matrix_row_t read_cols(uint8_t row) {
             dprintf("PCF8574: Write FAILED! status=%d, data=0x%02X, errors=%d\n",
                     status, data, pcf8574_error_count);
         }
+        if (pcf8574_error_count >= PCF8574_MAX_ERRORS) {
+            pcf8574_initialized = false;  /* re-init on the retry schedule */
+        }
         return 0;
     }
 
@@ -116,6 +125,9 @@ static matrix_row_t read_cols(uint8_t row) {
         pcf8574_error_count++;
         if (pcf8574_error_count == 1 || pcf8574_error_count % 100 == 0) {
             dprintf("PCF8574: Read FAILED! status=%d, errors=%d\n", status, pcf8574_error_count);
+        }
+        if (pcf8574_error_count >= PCF8574_MAX_ERRORS) {
+            pcf8574_initialized = false;  /* re-init on the retry schedule */
         }
         return 0;
     }
@@ -162,7 +174,8 @@ void matrix_init_custom(void) {
     dprintf("  Row 2: Encoder button\n");
     dprintf("----------------------------------------\n");
 
-    /* Initialize PCF8574 */
+    /* Initialize PCF8574 (give it time to power up first — boot only) */
+    wait_ms(100);
     init_pcf8574();
 
     dprintf("----------------------------------------\n");
@@ -188,21 +201,19 @@ static uint16_t not_init_warn_count = 0;
 bool matrix_scan_custom(matrix_row_t current_matrix[]) {
     bool changed = false;
 
-    /* Try to reinitialize if PCF8574 is not responding */
-    if (!pcf8574_initialized) {
+    /* Retry a silent PCF8574 on a schedule — each attempt can block on I2C
+     * — and keep scanning the direct GPIO rows meanwhile, so Stop/Accept/
+     * Reject/Mode and the encoder button survive an expander fault. */
+    if (!pcf8574_initialized && timer_elapsed32(pcf8574_last_init) >= PCF8574_RETRY_MS) {
         not_init_warn_count++;
-        if (not_init_warn_count == 1 || not_init_warn_count % 1000 == 0) {
+        if (not_init_warn_count == 1 || not_init_warn_count % 10 == 0) {
             dprintf("PCF8574: NOT INITIALIZED! Attempt #%u\n", not_init_warn_count);
         }
         init_pcf8574();
-        if (!pcf8574_initialized) {
-            /* Still not initialized, try again next scan */
-            return false;
-        }
     }
 
-    /* Scan PCF8574 matrix (row 0 only) */
-    matrix_row_t cols = read_cols(0);
+    /* Scan PCF8574 matrix (row 0 only) — reads as released while it's down */
+    matrix_row_t cols = pcf8574_initialized ? read_cols(0) : 0;
 
     if (current_matrix[0] != cols) {
         dprintf("PCF8574: Row 0 CHANGED: 0x%02X -> 0x%02X\n", current_matrix[0], cols);

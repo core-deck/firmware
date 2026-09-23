@@ -7,28 +7,27 @@
 #include "softkeys.h"
 #include "theme.h"
 
-#ifdef DIP_SWITCH_ENABLE
+/* Bootmagic: holding the Claude key [0,3] while plugging in jumps to the UF2
+ * bootloader. QMK's stock check reads it on two scans 10 ms apart, and with
+ * eager debounce (rules.mk) one glitchy read on the second scan is enough.
+ * Require the key on every scan for BOOTMAGIC_HOLD_MS instead. */
+#define BOOTMAGIC_HOLD_MS 100
 
-/**
- * @brief Callback function for DIP switch state changes
- *
- * Updates YOLO state and sends a state report via HID.
- * No keystroke is sent — the host reads YOLO state from the 0x10 report.
- *
- * @param index The index of the DIP switch (0 for YOLO mode)
- * @param active Inverted polarity: false when switch is ON
- * @return true to continue processing
- */
-bool dip_switch_update_kb(uint8_t index, bool active) {
-    if (!dip_switch_update_user(index, active)) {
-        return false;
-    }
-    /* YOLO state handled by yolo_switch_poll() — DIP switch scanner
-     * only fires reliably for one edge on this hardware. */
-    return true;
+void bootmagic_reset_eeprom(void);  /* weak in quantum/bootmagic/bootmagic.c, no header */
+
+void bootmagic_scan(void) {
+    uint32_t start = timer_read32();
+    do {
+        matrix_scan();
+        if (!(matrix_get_row(BOOTMAGIC_ROW) & (1 << BOOTMAGIC_COLUMN))) {
+            return;
+        }
+        wait_ms(5);
+    } while (timer_elapsed32(start) < BOOTMAGIC_HOLD_MS);
+
+    bootmagic_reset_eeprom();
+    bootloader_jump();
 }
-
-#endif // DIP_SWITCH_ENABLE
 
 /**
  * @brief EEPROM reset callback - set safe defaults
@@ -48,6 +47,42 @@ void eeconfig_init_kb(void) {
 typedef enum { CLAUDE_IDLE, CLAUDE_WAITING, CLAUDE_PEEKING } claude_hold_t;
 static claude_hold_t claude_hold_state = CLAUDE_IDLE;
 static uint32_t claude_hold_start = 0;
+
+/* Claude button double-tap: two taps within CLAUDE_DOUBLE_TAP_MS emit
+ * KC_F23 to the daemon (interpreted as "swap to the previous session")
+ * instead of two F20s. Only while the companion app is connected — a
+ * plain USB host gets F20 as before. A lone tap is parked for the
+ * window and flushed as F20 from housekeeping, so a double-tap never
+ * also fires F20's raise / focus-alert action. */
+#ifndef CLAUDE_DOUBLE_TAP_MS
+#    define CLAUDE_DOUBLE_TAP_MS 400
+#endif
+static bool     claude_tap_pending = false;
+static uint32_t claude_tap_time    = 0;
+
+/* Send the parked F20 once the double-tap window has run out. */
+static void claude_tap_flush(void) {
+    if (claude_tap_pending && timer_elapsed32(claude_tap_time) >= CLAUDE_DOUBLE_TAP_MS) {
+        claude_tap_pending = false;
+        send_key_event(KC_F20);
+    }
+}
+
+/* Route one Claude-button tap to the host (companion connected). */
+static void claude_tap(uint16_t keycode) {
+    claude_tap_flush();
+    if (keycode != KC_F20) {
+        send_key_event(keycode);  /* remapped in VIAL — no double-tap */
+        return;
+    }
+    if (claude_tap_pending) {
+        claude_tap_pending = false;
+        send_key_event(KC_F23);
+        return;
+    }
+    claude_tap_pending = true;
+    claude_tap_time    = timer_read32();
+}
 
 /* Tracks whether the Claude button (F20, [0,3]) is physically held
  * down right now. Used as a chord modifier: F20 + Stop emits KC_F24
@@ -99,6 +134,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
      * release events). */
     if (record->event.key.row == 1 && record->event.key.col == 0
         && record->event.pressed && f20_held && display_is_connected()) {
+        claude_tap_pending = false;  /* the chord replaces the parked F20 */
         send_key_event(KC_F24);
         return false;
     }
@@ -115,7 +151,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
             if (claude_hold_state == CLAUDE_WAITING) {
                 /* Short press — fire tap: send key event to host */
                 if (display_is_connected()) {
-                    send_key_event(keycode);
+                    claude_tap(keycode);
                 } else {
                     return process_record_user(keycode, record);
                 }
@@ -123,6 +159,17 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 display_alert_show_details(false);
             }
             claude_hold_state = CLAUDE_IDLE;
+        }
+        return false;
+    }
+
+    /* Claude button [0,3] with no alert up: tap on press, double-tap
+     * becomes KC_F23 (see claude_tap). Remapped keycodes skip this and
+     * take the generic routing below. */
+    if (record->event.key.row == 0 && record->event.key.col == 3
+        && keycode == KC_F20 && display_is_connected()) {
+        if (record->event.pressed) {
+            claude_tap(keycode);
         }
         return false;
     }
@@ -183,15 +230,16 @@ static uint32_t state_report_time = 0;
 /**
  * @brief Poll YOLO switch GPIO directly (GP28)
  *
- * QMK's DIP switch scanner misses the OFF transition on this hardware.
- * Read the pin ourselves with simple debounce.
+ * The switch ties GP28 to 3V3 against the internal pull-down (HIGH =
+ * ON). Polled here with a simple debounce rather than via QMK's DIP
+ * switch feature, which assumes a switch to GND and enables a pull-up.
  */
 static void yolo_switch_poll(void) {
     static uint8_t stable_count = 0;
     static bool last_pin = false;
     static bool initialized = false;
 
-    /* GP28 is an ADC pin — re-assert digital input + pull-up every read
+    /* GP28 is an ADC pin — re-assert digital input + pull-down every read
      * because the ADC subsystem may clear the pad's Input Enable bit. */
     gpio_set_pin_input_low(GP28);
     bool pin = gpio_read_pin(GP28);
@@ -227,7 +275,7 @@ static void yolo_switch_poll(void) {
  * @brief Housekeeping task for periodic updates
  */
 void housekeeping_task_kb(void) {
-    // Direct YOLO switch poll (DIP switch scanner misses OFF edge)
+    // YOLO switch poll
     yolo_switch_poll();
 
     // Send deferred state report after debounce settles
@@ -241,6 +289,9 @@ void housekeeping_task_kb(void) {
         claude_hold_state = CLAUDE_PEEKING;
         display_alert_show_details(true);
     }
+
+    // Claude button: send a lone tap once the double-tap window closes
+    claude_tap_flush();
 
     // Poll softkey hold timer for peek overlay
     softkeys_task();

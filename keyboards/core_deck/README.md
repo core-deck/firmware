@@ -18,7 +18,7 @@ A Claude Code-optimized macropad with TFT display, RGB lighting, and rotary enco
 - **Plug & Play**: Works as standard USB keyboard, no companion app required
 - **Optional Companion App**: Display shows real-time Claude Code task info via Raw HID
 - **Configurable Soft Keys**: 3 soft keys (Clear, Verbose, Model) reconfigurable at runtime via HID
-- **Smart LEDs**: Reactive button lighting + Mode button (3-state: default/cyan/purple)
+- **Smart LEDs**: Reactive button lighting + Mode button (4 modes: default/purple/cyan/gold)
 - **Low Power**: Current limited to 500mA (USB 2.0 compliant)
 
 ## Button Layout
@@ -47,14 +47,14 @@ A Claude Code-optimized macropad with TFT display, RGB lighting, and rotary enco
 
 ### Hardware Switch
 ```
-YOLO Mode Toggle: GP28 (sends text message on state change)
+YOLO Mode Toggle: GP28 (reports state to the companion app; hazard stripes on the display)
 ```
 
 ## Key Functions
 
 | Key | Default Keycode | Purpose |
 |-----|---------|---------|
-| **Claude** | F20 | Trigger Claude (companion app) |
+| **Claude** | F20 | Trigger Claude (companion app); double-tap swaps to the previous session |
 | **Clear** | Esc-Esc | Clear input (soft key) |
 | **Verbose** | Ctrl-O | Toggle verbose mode (soft key) |
 | **Model** | /model + Enter | Model select (soft key) |
@@ -67,16 +67,19 @@ YOLO Mode Toggle: GP28 (sends text message on state change)
 
 ## RGB LED Behaviors
 
-### Standard Buttons (8 LEDs)
-- **Idle**: Dim cyan glow
-- **Pressed**: Bright flash
-- **Effect**: Solid Reactive Simple
+### Standard Buttons
+- **Idle**: Constant dim orange glow (dims further after 10 min without input)
+- **Pressed**: Bright flash that fades back to the glow
+- **Alerts**: Glow turns red while an alert is showing
+- **Effect**: Custom `GLOW_REACTIVE` (`rev1/rgb_matrix_kb.inc`)
 
-### Mode Button (LED 7)
+### Mode Button (LED 4)
 - **Default**: Normal reactive effect (no override)
-- **Plan mode**: Cyan — planning mode active
-- **Accept mode**: Purple — accept changes mode active
-- **Cycling**: Each press cycles through default → plan → accept → default
+- **Accept edits**: Purple
+- **Plan mode**: Cyan
+- **Auto**: Gold
+- **Cycling**: Each tap cycles default → accept → plan → auto → default
+  (mirrors Claude Code's Shift-Tab cycle)
 - **HID sync**: Companion app can set mode via command 0x07
 
 **Note**: Brightness limited to 51% (130/255) to stay under 500mA USB limit.
@@ -171,7 +174,13 @@ The display can show real-time Claude Code information via Raw HID.
 | 0x04 | Host->Device | Set soft key assignment |
 | 0x05 | Host->Device | Get soft key assignment |
 | 0x06 | Host->Device | Reset all soft keys to defaults |
-| 0x07 | Host->Device | Set mode state (default/plan/accept) |
+| 0x07 | Host->Device | Set mode state (default/accept/plan/auto) |
+| 0x08 | Host->Device | Set/clear a tab alert (JSON) |
+| 0x09 | Host->Device | Get firmware version |
+| 0x0A | Host->Device | Disconnect (host going away — go idle) |
+| 0x0B | Host->Device | Set theme colour slot |
+| 0x0C | Host->Device | Get theme (one slot or all) |
+| 0x0D | Host->Device | Reset theme to defaults |
 | 0x10 | Device->Host | State report (mode + YOLO) |
 | 0x11 | Device->Host | Type string (routed soft key string) |
 | 0x12 | Device->Host | Key event (routed keycode) |

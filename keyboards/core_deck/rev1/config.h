@@ -42,8 +42,8 @@
  * Row 2: GP27 (Encoder button)
  */
 
-/* YOLO Mode Switch - SPST toggle switch connected to GPIO */
-#define DIP_SWITCH_PINS { GP28 }  // Change to your desired GPIO pin
+/* YOLO Mode Switch - SPST toggle between GP28 and 3V3, read by
+ * yolo_switch_poll() in rev1.c (internal pull-down, HIGH = ON) */
 // #define QUANTUM_PAINTER_DEBUG
 
 /* TFT Display Configuration */
@@ -90,7 +90,9 @@
 
 /* Bootloader Configuration */
 #define RP2040_BOOTLOADER_DOUBLE_TAP_RESET           // Enable double-tap to enter bootloader
-#define RP2040_BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT 500U  // Time window for double-tap (ms)
+/* Any reset within this window of power-up enters the bootloader — including
+ * a bouncy USB insertion or a quick re-plug, so keep it short. */
+#define RP2040_BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT 250U  // Time window for double-tap (ms)
 #define RP2040_BOOTLOADER_DOUBLE_TAP_RESET_LED_MASK 0U   // No LED indicator
 
 /* Rotary Encoder Configuration */

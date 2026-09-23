@@ -446,6 +446,16 @@ Bytes 4-31: 0x00
 
 Examples: `KC_ESC` = `0x0029`, `LCTL(KC_C)` = `0x0106`, `KC_ENT` = `0x0028`, `KC_F20` = `0x006F`.
 
+**Claude button gestures**: while the host is connected, the Claude button (`[0,3]`, `KC_F20`) reports gestures as spare F-keys rather than literal keys:
+
+| Gesture | Keycode sent | Host meaning |
+|---------|--------------|--------------|
+| Single tap | `KC_F20` (`0x006F`) | Raise the active session / focus the alerting one |
+| Double tap (2nd press within 400 ms of the 1st, `CLAUDE_DOUBLE_TAP_MS`) | `KC_F23` (`0x0072`), *instead of* F20 | Swap to the previously active session |
+| Hold Claude + tap Stop | `KC_F24` (`0x0073`), instead of Ctrl-C | Open a fresh session in the focused cwd |
+
+A single tap's F20 is held back until the double-tap window closes, so it arrives ~400 ms after the tap (after release while an alert is showing). Without a host, the button is a plain F20 key.
+
 **Host handling**: Decode the modifier bits and base keycode, then simulate the keystroke in the Claude Code terminal using OS-level key simulation (e.g., AppleScript, xdotool, or similar).
 
 #### Command 0x10: State Report (Keyboard → Host)
@@ -812,11 +822,12 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
 
 ### JSON Parsing
 
-Simple string parsing in `display.c` without external libraries:
-- Uses `strstr()` to find field names
-- Uses `strchr()` to find closing quotes
+Simple string parsing in `display.c` without external libraries (`json_get_string()`):
+- Uses `strstr()` to find `"field":` in a flat object
+- Decodes string escapes: `\"`, `\\`, `\/`, and `\uXXXX` (BMP, re-encoded as UTF-8); other control escapes (`\n`, `\t`, …) become a space and surrogate pairs are dropped (no glyphs for them anyway)
 - Handles `null` values for nullable fields
-- Validates lengths to prevent buffer overflows
+- Truncates to the field size (127 bytes) without splitting an escaped character; the renderer drops any raw UTF-8 sequence cut by truncation
+- Alert `text` of `""` is treated as a clear, same as `null`
 
 ## Debugging
 

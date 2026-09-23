@@ -44,8 +44,34 @@ __attribute__((weak)) void softkeys_apply_defaults_user(void) {
     /* No custom defaults — all keys use keymap keycodes */
 }
 
+/* Make a loaded entry safe to use. Every consumer (labels, taps, the 0x05
+ * response, which copies into a fixed-size stack buffer) trusts the type,
+ * the string terminator and the sequence count; softkeys_set enforces
+ * them, but EEPROM contents are only as good as the last write. */
+static void softkey_sanitize(softkey_entry_t *entry) {
+    switch (entry->type) {
+        case SOFTKEY_DEFAULT:
+        case SOFTKEY_KEYCODE:
+            break;
+        case SOFTKEY_STRING:
+            entry->data[SOFTKEY_DATA_LEN - 1] = '\0';
+            break;
+        case SOFTKEY_SEQUENCE:
+            if (entry->data[0] == 0 || entry->data[0] > SOFTKEY_SEQ_MAX_KEYS) {
+                memset(entry, 0, sizeof(*entry));
+            }
+            break;
+        default:
+            memset(entry, 0, sizeof(*entry));  /* unknown type → keymap default */
+            break;
+    }
+}
+
 void softkeys_init(void) {
     eeconfig_read_kb_datablock(&kb_config, 0, sizeof(kb_config));
+    for (uint8_t i = 0; i < SOFTKEY_COUNT; i++) {
+        softkey_sanitize(&kb_config.softkeys[i]);
+    }
 
     /* Detect virgin EEPROM: all softkey types are SOFTKEY_DEFAULT (0) */
     bool all_default = true;

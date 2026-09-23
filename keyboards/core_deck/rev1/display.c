@@ -16,6 +16,7 @@
 #include "graphics/terminus_reg_14.qff.h"
 #include "graphics/logo.qgf.h"
 #include <hal.h>
+#include <stdio.h>
 #include <string.h>
 
 /* Color slots live in kb_config.theme[] and are tunable at runtime via
@@ -30,6 +31,15 @@
 /* YOLO hazard stripe geometry — colour comes from THEME_YOLO. */
 #define YOLO_STRIPE_W   3   /* width of stripe column on each side */
 #define YOLO_STRIPE_P   6   /* diagonal stripe period in pixels */
+
+/* Rows the tab indicators can touch: centre 65 ± 7 (breathing radius 6,
+ * +1 for the active tab) plus the overflow ">" glyph. Nothing else in the
+ * main or alert view is drawn in this band, so animation ticks repaint
+ * and flush only it. */
+#define TAB_STRIP_TOP     57
+#define TAB_STRIP_BOTTOM  73
+
+#define ALERT_FRAME_RINGS 5
 
 /* Display handle */
 static painter_device_t display = NULL;
@@ -79,8 +89,21 @@ static bool alert_details_active = false; /* true while Claude button held */
  * (and RGB matrix animation) isn't starved during bursts of HID traffic. */
 static bool render_pending = false;
 
+/* Animation frame due — consumed by display_task(). Unlike render_pending
+ * it repaints only what breathes: a full 284x76 flush is ~43 KB of SPI
+ * (~25 ms) with the main loop, and so matrix scanning, blocked — enough
+ * to swallow a quick tap when it happens 20 times a second. */
+static bool anim_pending = false;
+
+/* Which full view is on the panel. Animation ticks paint on top of it,
+ * so they are only valid over the matching view. */
+typedef enum { SCREEN_OTHER, SCREEN_MAIN, SCREEN_ALERT } screen_t;
+static screen_t screen_shown = SCREEN_OTHER;
+
 /* Forward declarations */
 static void display_render_alert_overlay(void);
+static void display_render_main_anim(void);
+static void display_render_alert_anim(void);
 static void draw_wordwrapped(painter_device_t target, painter_font_handle_t font,
                               const uint16_t *y_positions, uint8_t max_lines,
                               const char *text, uint16_t max_w,
@@ -187,6 +210,7 @@ void display_show_logo(void) {
     if (logo != NULL && surface != NULL) {
         qp_drawimage(surface, 0, 0, logo);
         qp_surface_draw(surface, display, 0, 0, true);
+        screen_shown = SCREEN_OTHER;
     }
 }
 
@@ -331,17 +355,32 @@ void display_task(void) {
         if (timer_elapsed32(last_frame_time) >= ANIM_FRAME_MS) {
             last_frame_time = now;
             anim_phase = (anim_phase + ANIM_FRAME_MS) % ANIM_CYCLE_MS;
-            render_pending = true;
+            anim_pending = true;
         }
     } else {
         anim_phase = 0;
     }
 
-    /* Consume deferred render (from HID callbacks or animation tick) */
+    /* Consume deferred render (from HID callbacks) — covers any pending
+     * animation frame too — or else the animation tick alone. */
     if (render_pending) {
         render_pending = false;
+        anim_pending = false;
         if (overlay_state == OVERLAY_ALERT) {
             display_render_alert_overlay();
+        } else {
+            display_render();
+        }
+    } else if (anim_pending) {
+        anim_pending = false;
+        if (overlay_state == OVERLAY_ALERT) {
+            if (screen_shown == SCREEN_ALERT) {
+                display_render_alert_anim();
+            } else {
+                display_render_alert_overlay();
+            }
+        } else if (screen_shown == SCREEN_MAIN) {
+            display_render_main_anim();
         } else {
             display_render();
         }
@@ -350,14 +389,26 @@ void display_task(void) {
 
 /**
  * @brief Decode one UTF-8 codepoint, return number of bytes consumed (0 on error)
+ *
+ * Continuation bytes are validated before use, so a sequence cut short —
+ * e.g. by the 127-byte field truncation in the JSON parsers — is rejected
+ * at the terminating NUL instead of being read past it.
  */
 static uint8_t utf8_decode(const char *s, uint32_t *cp) {
     uint8_t c = (uint8_t)s[0];
+    uint8_t len;
     if (c < 0x80) { *cp = c; return 1; }
-    if ((c & 0xE0) == 0xC0) { *cp = ((c & 0x1F) << 6) | (s[1] & 0x3F); return 2; }
-    if ((c & 0xF0) == 0xE0) { *cp = ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F); return 3; }
-    if ((c & 0xF8) == 0xF0) { *cp = ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F); return 4; }
-    return 0;
+    if ((c & 0xE0) == 0xC0) { *cp = c & 0x1F; len = 2; }
+    else if ((c & 0xF0) == 0xE0) { *cp = c & 0x0F; len = 3; }
+    else if ((c & 0xF8) == 0xF0) { *cp = c & 0x07; len = 4; }
+    else { return 0; }
+    for (uint8_t k = 1; k < len; k++) {
+        if (((uint8_t)s[k] & 0xC0) != 0x80) {
+            return 0;
+        }
+        *cp = (*cp << 6) | ((uint8_t)s[k] & 0x3F);
+    }
+    return len;
 }
 
 /* Unicode codepoints included in our fonts.
@@ -612,6 +663,100 @@ void display_render(void) {
 
     // Blit to physical display in one shot
     qp_surface_draw(surface, display, 0, 0, true);
+    screen_shown = SCREEN_MAIN;
+}
+
+/**
+ * @brief Main view animation tick — repaint and flush only the tab strip
+ */
+static void display_render_main_anim(void) {
+    uint16_t l = yolo_state_get() ? YOLO_STRIPE_W : 0;  /* keep hazard stripes */
+    qp_rect(surface, l, TAB_STRIP_TOP, DISPLAY_WIDTH - 1 - l, TAB_STRIP_BOTTOM, 0, 0, 0, true);
+    draw_tabs(surface);
+    qp_surface_draw(surface, display, 0, 0, false);  /* dirty region only */
+}
+
+typedef enum { JSON_ABSENT, JSON_NOT_STRING, JSON_STRING } json_str_t;
+
+static int8_t hex_val(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/**
+ * @brief Extract the string value of "key" from a flat JSON object
+ *
+ * Decodes the escapes JSON encoders emit — \" \\ \/ and \uXXXX (BMP,
+ * re-encoded as UTF-8); other control escapes (\n, \t, …) become a space.
+ * The host serialises with serde_json, so a task like `echo "hi"` arrives
+ * as `echo \"hi\"`. The value is truncated to out_size - 1 bytes, never
+ * inside an encoded character.
+ *
+ * @return JSON_STRING with `out` filled; JSON_NOT_STRING (null or another
+ *         type) or JSON_ABSENT with `out` untouched
+ */
+static json_str_t json_get_string(const char *json, const char *key, char *out, size_t out_size) {
+    char pattern[16];
+    snprintf(pattern, sizeof(pattern), "\"%s\":", key);
+    const char *p = strstr(json, pattern);
+    if (!p) {
+        return JSON_ABSENT;
+    }
+    p += strlen(pattern);
+    while (*p == ' ') {
+        p++;
+    }
+    if (*p != '"') {
+        return JSON_NOT_STRING;
+    }
+    p++;
+
+    size_t j = 0;
+    while (*p != '\0' && *p != '"') {
+        char    enc[3];
+        uint8_t n = 1;
+        enc[0] = *p++;
+        if (enc[0] == '\\' && *p != '\0') {
+            char e = *p++;
+            if (e == '"' || e == '\\' || e == '/') {
+                enc[0] = e;
+            } else if (e == 'u') {
+                uint16_t cp = 0;
+                uint8_t  k  = 0;
+                for (; k < 4 && hex_val(p[k]) >= 0; k++) {
+                    cp = (cp << 4) | hex_val(p[k]);
+                }
+                p += k;
+                if (k < 4 || (cp >= 0xD800 && cp <= 0xDFFF)) {
+                    n = 0;  /* malformed, or half of a non-BMP pair (no glyph anyway) */
+                } else if (cp < 0x20) {
+                    enc[0] = ' ';
+                } else if (cp < 0x80) {
+                    enc[0] = (char)cp;
+                } else if (cp < 0x800) {
+                    enc[0] = (char)(0xC0 | (cp >> 6));
+                    enc[1] = (char)(0x80 | (cp & 0x3F));
+                    n      = 2;
+                } else {
+                    enc[0] = (char)(0xE0 | (cp >> 12));
+                    enc[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                    enc[2] = (char)(0x80 | (cp & 0x3F));
+                    n      = 3;
+                }
+            } else {
+                enc[0] = ' ';  /* \n \r \t \b \f */
+            }
+        }
+        if (j + n >= out_size) {
+            break;
+        }
+        memcpy(&out[j], enc, n);
+        j += n;
+    }
+    out[j] = '\0';
+    return JSON_STRING;
 }
 
 /**
@@ -621,54 +766,16 @@ void display_render(void) {
  */
 static void parse_json(const char* json) {
     char* ptr;
-    char* end;
 
-    // Parse "session"
-    ptr = strstr(json, "\"session\":\"");
-    if (ptr) {
-        ptr += 11;  // Skip "session":"
-        end = strchr(ptr, '"');
-        if (end) {
-            size_t slen = end - ptr;
-            if (slen >= DISPLAY_MAX_TEXT_LEN) slen = DISPLAY_MAX_TEXT_LEN - 1;
-            memcpy(display_data.session, ptr, slen);
-            display_data.session[slen] = '\0';
-        }
+    // "session" and "task" keep their value when absent; "task": null clears
+    json_get_string(json, "session", display_data.session, sizeof(display_data.session));
+    if (json_get_string(json, "task", display_data.task, sizeof(display_data.task)) == JSON_NOT_STRING) {
+        display_data.task[0] = '\0';
     }
 
-    // Parse "task" (string or null)
-    ptr = strstr(json, "\"task\":");
-    if (ptr) {
-        ptr += 7;  // Skip "task":
-        if (strncmp(ptr, "null", 4) == 0) {
-            display_data.task[0] = '\0';
-        } else if (*ptr == '"') {
-            ptr++;  // Skip opening quote
-            end = strchr(ptr, '"');
-            if (end) {
-                size_t slen = end - ptr;
-                if (slen >= DISPLAY_MAX_TEXT_LEN) slen = DISPLAY_MAX_TEXT_LEN - 1;
-                memcpy(display_data.task, ptr, slen);
-                display_data.task[slen] = '\0';
-            }
-        }
-    }
-
-    // Parse "task2" (string or null, optional)
-    display_data.task2[0] = '\0';
-    ptr = strstr(json, "\"task2\":");
-    if (ptr) {
-        ptr += 8;  // Skip "task2":
-        if (*ptr == '"') {
-            ptr++;  // Skip opening quote
-            end = strchr(ptr, '"');
-            if (end) {
-                size_t slen = end - ptr;
-                if (slen >= DISPLAY_MAX_TEXT_LEN) slen = DISPLAY_MAX_TEXT_LEN - 1;
-                memcpy(display_data.task2, ptr, slen);
-                display_data.task2[slen] = '\0';
-            }
-        }
+    // "task2" is optional — anything but a string clears it
+    if (json_get_string(json, "task2", display_data.task2, sizeof(display_data.task2)) != JSON_STRING) {
+        display_data.task2[0] = '\0';
     }
 
     // Parse "tabs" array
@@ -825,8 +932,11 @@ static void draw_sanitized_centered(painter_device_t target, painter_font_handle
  * Brightness oscillates with anim_phase using a triangle wave (same
  * cycle as tab breathing).  At peak the outer ring is full red (V=255),
  * at trough it fades to dim (V=40).
+ *
+ * alert_ring_val() gives ring `ring`'s (0 = outermost) V for the current
+ * phase; draw_alert_frame() paints all rings.
  */
-static void draw_alert_frame(painter_device_t target) {
+static uint8_t alert_ring_val(uint8_t ring) {
     /* Triangle wave 0‥255 from anim_phase (0‥ANIM_CYCLE_MS-1) */
     uint16_t half = ANIM_CYCLE_MS / 2;
     uint8_t breath;  /* 0..255 */
@@ -837,18 +947,56 @@ static void draw_alert_frame(painter_device_t target) {
     }
 
     /* Base V values for the 5 rings (outer → inner) */
-    static const uint8_t base_v[] = { 255, 180, 120, 70, 30 };
+    static const uint8_t base_v[ALERT_FRAME_RINGS] = { 255, 180, 120, 70, 30 };
 
+    /* Signed: the innermost ring's base (30) is below the 60 floor, so it
+     * dims as the others brighten. Unsigned maths wrapped and flickered. */
+    return (uint8_t)(60 + ((int16_t)base_v[ring] - 60) * breath / 255);
+}
+
+static void draw_alert_frame(painter_device_t target) {
     /* Frame uses THEME_ALERT for hue/sat; V is animated and ignores the slot's val. */
-    uint8_t ah, as_, av_unused;
-    theme_get(THEME_ALERT, &ah, &as_, &av_unused);
-    (void)av_unused;
-
-    for (uint8_t i = 0; i < 5; i++) {
-        uint8_t v = 60 + (uint8_t)((uint16_t)(base_v[i] - 60) * breath / 255);
+    for (uint8_t i = 0; i < ALERT_FRAME_RINGS; i++) {
         qp_rect(target, i, i, DISPLAY_WIDTH - 1 - i, DISPLAY_HEIGHT - 1 - i,
-                ah, as_, v, false);
+                theme_hue(THEME_ALERT), theme_sat(THEME_ALERT), alert_ring_val(i), false);
     }
+}
+
+/**
+ * @brief Alert overlay animation tick — repaint only what breathes
+ *
+ * The frame is repainted and flushed one side at a time (a whole-frame
+ * repaint makes the entire panel dirty), then the tab strip. Each
+ * transfer stays a few KB instead of the full 43 KB.
+ */
+static void display_render_alert_anim(void) {
+    const uint16_t r = DISPLAY_WIDTH - 1;
+    const uint16_t b = DISPLAY_HEIGHT - 1;
+    const uint8_t  h = theme_hue(THEME_ALERT);
+    const uint8_t  s = theme_sat(THEME_ALERT);
+
+    for (uint8_t i = 0; i < ALERT_FRAME_RINGS; i++) {
+        qp_line(surface, i, i, r - i, i, h, s, alert_ring_val(i));  /* top */
+    }
+    qp_surface_draw(surface, display, 0, 0, false);
+    for (uint8_t i = 0; i < ALERT_FRAME_RINGS; i++) {
+        qp_line(surface, i, i, i, b - i, h, s, alert_ring_val(i));  /* left */
+    }
+    qp_surface_draw(surface, display, 0, 0, false);
+    for (uint8_t i = 0; i < ALERT_FRAME_RINGS; i++) {
+        qp_line(surface, r - i, i, r - i, b - i, h, s, alert_ring_val(i));  /* right */
+    }
+    qp_surface_draw(surface, display, 0, 0, false);
+    for (uint8_t i = 0; i < ALERT_FRAME_RINGS; i++) {
+        qp_line(surface, i, b - i, r - i, b - i, h, s, alert_ring_val(i));  /* bottom */
+    }
+
+    /* Tabs overlap the bottom rings and are drawn over them, as in the
+     * full render — clear only the strip part inside the frame. */
+    qp_rect(surface, ALERT_FRAME_RINGS, TAB_STRIP_TOP,
+            r - ALERT_FRAME_RINGS, b - ALERT_FRAME_RINGS, 0, 0, 0, true);
+    draw_tabs(surface);
+    qp_surface_draw(surface, display, 0, 0, false);
 }
 
 /**
@@ -938,6 +1086,9 @@ static void display_render_alert_overlay(void) {
     /* Red gradient frame */
     draw_alert_frame(surface);
 
+    /* Only the normal view has the tab strip the animation tick repaints */
+    screen_t shown = SCREEN_OTHER;
+
     int8_t idx = find_oldest_alert();
     if (idx >= 0) {
         uint16_t max_w = DISPLAY_WIDTH - 14; /* 5px frame + 2px pad each side */
@@ -961,11 +1112,13 @@ static void display_render_alert_overlay(void) {
 
             /* Tab indicators (alerted tabs use THEME_ALERT) */
             draw_tabs(surface);
+            shown = SCREEN_ALERT;
         }
     }
 
     /* Blit to display */
     qp_surface_draw(surface, display, 0, 0, true);
+    screen_shown = shown;
 }
 
 /**
@@ -993,34 +1146,15 @@ static void parse_alert_json(const char *json, uint16_t len) {
     }
     if (tab >= DISPLAY_MAX_TABS) return;
 
-    /* Parse "text" (string, null, or absent = clear) */
-    ptr = strstr(buf, "\"text\":");
-    bool is_clear;
+    /* Parse "text": a non-empty string sets the alert; null, "" or absent
+     * clears. An empty text must not count as an alert — every other path
+     * treats text[0] == '\0' as "no alert", so it could never be shown or
+     * dismissed and left alert_count (and the red frame) stuck. */
     static char text_val[DISPLAY_MAX_TEXT_LEN];
-    text_val[0] = '\0';
-
-    if (!ptr) {
-        is_clear = true;  /* absent text = clear */
-    } else {
-        ptr += 7;
-        while (*ptr == ' ') ptr++;
-        if (strncmp(ptr, "null", 4) == 0) {
-            is_clear = true;
-        } else if (*ptr == '"') {
-            is_clear = false;
-            ptr++;  /* skip opening quote */
-            char *end = strchr(ptr, '"');
-            if (end) {
-                is_clear = false;
-                size_t slen = end - ptr;
-                if (slen >= DISPLAY_MAX_TEXT_LEN) slen = DISPLAY_MAX_TEXT_LEN - 1;
-                memcpy(text_val, ptr, slen);
-                text_val[slen] = '\0';
-            }
-        } else {
-            is_clear = true;
-        }
+    if (json_get_string(buf, "text", text_val, sizeof(text_val)) != JSON_STRING) {
+        text_val[0] = '\0';
     }
+    bool is_clear = (text_val[0] == '\0');
 
     if (is_clear) {
         /* Clear alert for this tab */
@@ -1035,32 +1169,14 @@ static void parse_alert_json(const char *json, uint16_t len) {
     } else {
         /* Set alert — parse session (required when setting) */
         static char session_val[DISPLAY_MAX_TEXT_LEN];
-        session_val[0] = '\0';
-        char *sptr = strstr(buf, "\"session\":\"");
-        if (sptr) {
-            sptr += 11;
-            char *end = strchr(sptr, '"');
-            if (end) {
-                size_t slen = end - sptr;
-                if (slen >= DISPLAY_MAX_TEXT_LEN) slen = DISPLAY_MAX_TEXT_LEN - 1;
-                memcpy(session_val, sptr, slen);
-                session_val[slen] = '\0';
-            }
+        if (json_get_string(buf, "session", session_val, sizeof(session_val)) != JSON_STRING) {
+            session_val[0] = '\0';
         }
 
         /* Parse "details" (optional) */
         static char details_val[DISPLAY_MAX_TEXT_LEN];
-        details_val[0] = '\0';
-        char *dptr = strstr(buf, "\"details\":\"");
-        if (dptr) {
-            dptr += 11;
-            char *end = strchr(dptr, '"');
-            if (end) {
-                size_t slen = end - dptr;
-                if (slen >= DISPLAY_MAX_TEXT_LEN) slen = DISPLAY_MAX_TEXT_LEN - 1;
-                memcpy(details_val, dptr, slen);
-                details_val[slen] = '\0';
-            }
+        if (json_get_string(buf, "details", details_val, sizeof(details_val)) != JSON_STRING) {
+            details_val[0] = '\0';
         }
 
         bool was_empty = (alerts[tab].text[0] == '\0');
@@ -1157,6 +1273,7 @@ void display_overlay_show(void) {
     if (!display || !surface) return;
     if (overlay_state == OVERLAY_ALERT) return;  /* Alert has priority */
     overlay_state = OVERLAY_SOFTKEY;
+    screen_shown = SCREEN_OTHER;
 
     /* Clear surface to black */
     qp_rect(surface, 0, 0, DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1, 0, 0, 0, true);

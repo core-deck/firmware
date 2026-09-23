@@ -10,7 +10,7 @@
 #include <string.h>
 
 /* Firmware version (update on each release) */
-#define FW_VERSION "2.2.0"
+#define FW_VERSION "2.3.0"
 
 /* Internal header size for parsing (flags + cmd, after prefix is stripped) */
 #define PROTO_PKT_HEADER 2
@@ -260,7 +260,9 @@ static void process_message(uint8_t cmd, const uint8_t *payload, uint16_t len) {
                 uint8_t type = payload[1];
                 bool save = payload[2] != 0;
                 const uint8_t *sk_data = (len > 3) ? &payload[3] : NULL;
-                uint8_t sk_data_len = (len > 3) ? (len - 3) : 0;
+                /* Clamp before narrowing — a >258-byte payload used to wrap */
+                uint16_t data_len = (len > 3) ? (len - 3) : 0;
+                uint8_t sk_data_len = data_len > UINT8_MAX ? UINT8_MAX : (uint8_t)data_len;
 
                 uint8_t resp_data[3] = {0};
                 if (softkeys_set(key_index, type, sk_data, sk_data_len, save)) {

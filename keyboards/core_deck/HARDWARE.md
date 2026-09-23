@@ -29,7 +29,7 @@ The Core Deck is designed for the **RP2040-Tiny** board, which has limited GPIO 
 | **GP15** | Reject Button | Direct GPIO | Esc |
 | **GP26** | Mode Button | Direct GPIO | Shift-Tab |
 | **GP27** | Encoder Button | Direct GPIO | Enter |
-| **GP28** | DIP Switch | YOLO Mode | Toggle switch input |
+| **GP28** | YOLO Switch | Direct GPIO | Toggle to 3V3 (internal pull-down) |
 
 **Pins used:** 18 out of 20 available
 **Pins remaining:** GP1, GP29 (2 pins free)
@@ -171,13 +171,16 @@ The EC11 has a built-in momentary switch (SW pin). Currently not configured, but
 RP2040-Tiny      SPST Switch
 -----------      ------------
 GP28 ----------- Terminal 1
-GND ------------ Terminal 2
+3V3 ------------ Terminal 2
 ```
 
 **Type:** SPST (Single Pole Single Throw) toggle switch
 **Behavior:**
-- Switch ON (GP28 → GND): Sends "YOLO MODE ACTIVATED!"
-- Switch OFF (GP28 → floating/high): Sends "YOLO mode deactivated."
+- GP28 uses the internal pull-down: switch ON ties it to 3V3 (HIGH = YOLO on),
+  OFF lets it fall LOW.
+- Polled by `yolo_switch_poll()` in `rev1.c` (5-scan debounce); each change
+  updates the display's hazard stripes and sends a `0x10` state report to the
+  host. No keystrokes are sent.
 
 ### WS2812B RGB LEDs (9 LEDs)
 
@@ -264,7 +267,7 @@ All persistent settings (soft keys + backlight) are stored in a single EEPROM da
 If designing a custom PCB:
 
 1. **Pull-up/Pull-down Resistors:**
-   - GP28 (YOLO switch): Add 10kΩ pull-up to 3.3V
+   - GP28 (YOLO switch): Internal pull-down enabled in firmware (optional 10kΩ pull-down to GND); the switch ties it to 3.3V
    - Encoder pins (GP11, GP12): Add 10kΩ pull-ups to 3.3V
    - Direct GPIO buttons (GP13-GP15, GP26-GP27): Internal pull-ups enabled in firmware
    - Optional: 100nF capacitors on encoder A/B pins to GND for hardware debouncing
@@ -314,8 +317,8 @@ If designing a custom PCB:
    - Rotate and observe volume/keypress events
 
 4. **YOLO Switch:**
-   - Connect GP28 and GND
-   - Toggle switch and observe messages
+   - Connect GP28 and 3V3
+   - Toggle switch and watch the hazard stripes on the display
 
 ### Common Issues
 
@@ -345,8 +348,8 @@ If designing a custom PCB:
 - Adjust `ENCODER_MAP_KEY_DELAY` in config.h
 
 **YOLO switch not registering:**
-- Add 10kΩ pull-up resistor to GP28
-- Check switch orientation (GP28 should be HIGH when open)
+- Check the switch goes to 3V3, not GND (GP28 should be LOW when open, HIGH when on)
+- Add a 10kΩ pull-down resistor to GP28 if it floats
 
 ## Power Requirements
 

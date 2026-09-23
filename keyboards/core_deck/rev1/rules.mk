@@ -5,8 +5,11 @@ CUSTOM_MATRIX = lite
 SRC += matrix.c
 I2C_DRIVER_REQUIRED = yes
 
-# YOLO mode toggle switch
-DIP_SWITCH_ENABLE = yes
+# Register a press/release on the first scan that sees it, then ignore the
+# key for DEBOUNCE ms. The default (sym_defer_g) waits for a second stable
+# scan, so a quick tap or the gap between two taps is dropped when a
+# display flush stalls scanning in between.
+DEBOUNCE_TYPE = sym_eager_pk
 
 # TFT Display - driver selected based on config.h
 QUANTUM_PAINTER_ENABLE = yes
